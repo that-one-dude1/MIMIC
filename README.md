@@ -7,12 +7,14 @@ modes, a receiver plays the result, and a simulated Unitree Go2 robot reacts.
 Everything here is faked. It only uses pre-recorded demo clips. There is no
 radio, no SDR, no interception of real traffic (since that's illegal) and no voice cloning.
 
+This is made for Ubuntu-based systems, I'm unsure if MuJoCo works on Arch or Debian.
+
 ## How it works
 
 ```
 commander  --\                                      /--> receiver (plays audio)
 operator   ---+--> WebSocket --> FastAPI controller +
-receiver   --/                        |             \--> bridge --> MuJoCo Go2 sim
+receiver   --/                                      \--> bridge --> MuJoCo Go2 sim
 ```
 
 - **Browser pages** (`commander`, `operator`, `receiver`) are plain HTML/JS. Each opens one
@@ -34,11 +36,11 @@ receiver   --/                        |             \--> bridge --> MuJoCo Go2 s
 | `SWAP` | plays a different pre-recorded clip from a fixed lookup table |
 
 Every mode, asset and effect is whitelisted. Anything unknown shows up as an error event
-rather than being silently dropped.
+rather than being dropped, even though it should be an impossibility.
 
 ## Run it
 
-Needs Python 3.12.
+Needs Python 3.12+.
 
 ```bash
 python -m venv .venv
@@ -77,8 +79,3 @@ go2_walk.py    standalone gait experiment placed as a reference
 
 `tools/render_masks.py` generates the masked clips offline, so nothing is rendered live
 during a demo.
-
-## Status
-
-Demo / proof of concept, built to run on one machine on a local network. Not hardened
-and not meant for production.
