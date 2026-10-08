@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>M.I.M.I.C. Commander</title>
+  <style>
+    body { font-family: sans-serif; padding: 1em; font-size: 18px; }
+    header { display: flex; justify-content: space-between; align-items: baseline; max-width: 500px; margin-bottom: 1em; }
+    h1 { font-size: 1.3em; margin: 0; }
+    .status { font-size: 0.85em; color: #666; }
+    .dot { display: inline-block; width: 0.8em; height: 0.8em; border-radius: 50%; margin-right: 0.3em; background: #999; }
+    .dot.online { background: green; }
+    .dot.offline { background: red; }
+
+    .pad { display: flex; flex-wrap: wrap; gap: 0.75em; max-width: 500px; }
+    button[data-asset] {
+      flex: 1 1 45%;
+      padding: 1.3em 1em;
+      font-size: 1.15em;
+      cursor: pointer;
+    }
+
+    .last-event {
+      max-width: 500px;
+      margin-top: 1em;
+      font-family: monospace;
+      font-size: 0.9em;
+      color: #666;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Commander</h1>
+    <div class="status"><span class="dot" id="status-dot"></span><span id="status-text">CONNECTING</span></div>
+  </header>
+
+  <div class="pad">
+    <button data-asset="hold_position">HOLD POSITION</button>
+    <button data-asset="proceed_to_alpha">PROCEED TO ALPHA</button>
+    <button data-asset="report_status">REPORT STATUS</button>
+    <button data-asset="return_to_checkpoint">RETURN TO CHECKPOINT</button>
+  </div>
+
+  <div class="last-event" id="last-event">no activity yet</div>
+
+  <script>
+    const statusDot = document.getElementById("status-dot");
+    const statusText = document.getElementById("status-text");
+    const lastEvent = document.getElementById("last-event");
+
+    function setConnection(state) {
+      statusDot.className = "dot " + state;
+      statusText.textContent = state.toUpperCase();
+    }
+
+    const ws = new WebSocket(`ws://${location.host}/ws`);
+    ws.onopen = () => {
+      setConnection("online");
+      ws.send(JSON.stringify({ type: "register", client: "commander" }));
+    };
+    ws.onclose = () => setConnection("offline");
+    ws.onerror = () => setConnection("offline");
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      console.log("commander received:", data);
+      if (data.type === "state") {
+        const events = data.state.events;
+        const last = events[events.length - 1];
+        lastEvent.textContent = last
+          ? `${last.type.toUpperCase()} · ${last.asset ?? last.detail ?? ""} · ${new Date(last.timestamp * 1000).toLocaleTimeString()}`
+          : "no activity yet";
+      }
+    };
+
+    document.querySelectorAll("button[data-asset]").forEach((button) => {
+      button.onclick = () => ws.send(JSON.stringify({ type: "message", asset: button.dataset.asset }));
+    });
+  </script>
+</body>
+</html>

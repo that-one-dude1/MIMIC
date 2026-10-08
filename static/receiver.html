@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>M.I.M.I.C. Receiver</title>
+  <style>
+    body { font-family: sans-serif; padding: 1em; font-size: 18px; }
+    header { display: flex; justify-content: space-between; align-items: baseline; max-width: 500px; margin-bottom: 1em; }
+    h1 { font-size: 1.3em; margin: 0; }
+    .status { font-size: 0.85em; color: #666; }
+    .dot { display: inline-block; width: 0.8em; height: 0.8em; border-radius: 50%; margin-right: 0.3em; background: #999; }
+    .dot.online { background: green; }
+    .dot.offline { background: red; }
+
+    #arm { padding: 0.9em 1.6em; font-size: 1.15em; cursor: pointer; margin-bottom: 1em; }
+    #arm.armed { color: #666; cursor: default; }
+
+    .display {
+      max-width: 500px;
+      min-height: 140px;
+      border: 1px solid #999;
+      padding: 1em;
+      text-align: center;
+    }
+    .live-indicator { color: #666; font-size: 0.9em; }
+    #on-air { display: inline-block; width: 0.7em; height: 0.7em; border-radius: 50%; margin-right: 0.3em; background: #999; }
+    #on-air.live { background: red; }
+    #display-text { font-size: 2em; margin: 0.3em 0; }
+    #display-id { font-family: monospace; color: #666; font-size: 1em; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Receiver</h1>
+    <div class="status"><span class="dot" id="status-dot"></span><span id="status-text">CONNECTING</span></div>
+  </header>
+
+  <button id="arm">ARM AUDIO</button>
+
+  <div class="display">
+    <div class="live-indicator"><span id="on-air"></span>ON AIR</div>
+    <div id="display-text">STANDBY</div>
+    <div id="display-id"></div>
+  </div>
+
+  <script>
+    let armed = false;
+    const armButton = document.getElementById("arm");
+    const statusDot = document.getElementById("status-dot");
+    const statusText = document.getElementById("status-text");
+    const displayText = document.getElementById("display-text");
+    const displayId = document.getElementById("display-id");
+    const onAirDot = document.getElementById("on-air");
+
+    function setConnection(state) {
+      statusDot.className = "dot " + state;
+      statusText.textContent = state.toUpperCase();
+    }
+
+    armButton.onclick = () => {
+      armed = true;
+      armButton.disabled = true;
+      armButton.textContent = "AUDIO ARMED";
+      armButton.classList.add("armed");
+    };
+
+    const ws = new WebSocket(`ws://${location.host}/ws`);
+    ws.onopen = () => {
+      setConnection("online");
+      ws.send(JSON.stringify({ type: "register", client: "receiver" }));
+    };
+    ws.onclose = () => setConnection("offline");
+    ws.onerror = () => setConnection("offline");
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      console.log("receiver received:", data);
+      if (data.type === "play") {
+        displayText.textContent = data.display;
+        displayId.textContent = data.message_id;
+        onAirDot.classList.add("live");
+        if (armed) {
+          const audio = new Audio("/audio/" + data.file);
+          const reportFailure = (detail) => {
+            ws.send(JSON.stringify({ type: "playback_error", message_id: data.message_id, detail: String(detail) }));
+          };
+          audio.addEventListener("error", () => reportFailure(audio.error ? audio.error.message || audio.error.code : "audio element error"));
+          audio.play().catch(reportFailure);
+        }
+      } else if (data.type === "state" && !data.state.active_message) {
+        displayText.textContent = "STANDBY";
+        displayId.textContent = "";
+        onAirDot.classList.remove("live");
+      }
+    };
+  </script>
+</body>
+</html>

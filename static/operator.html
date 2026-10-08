@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>M.I.M.I.C. Operator</title>
+  <style>
+    body { font-family: sans-serif; }
+    .dashboard { display: grid; grid-template-columns: 1fr 1fr; gap: 1em; }
+    .panel { border: 1px solid #999; padding: 0.75em; }
+    .full-width { grid-column: 1 / span 2; }
+    button.selected { background: #999; color: #fff; }
+    .dot { display: inline-block; width: 0.7em; height: 0.7em; border-radius: 50%; margin-right: 0.3em; }
+    .dot.online { background: green; }
+    .dot.offline { background: red; }
+    #reset { font-size: 1.2em; padding: 0.5em 1em; background: #b00; color: #fff; border: none; }
+    #swap-io { font-size: 1.1em; text-align: center; }
+    #events { font-family: monospace; font-size: 0.85em; max-height: 12em; overflow-y: auto; }
+    #network { font-family: monospace; font-size: 0.85em; color: #666; margin-bottom: 1em; }
+  </style>
+</head>
+<body>
+  <h1>M.I.M.I.C. Operator</h1>
+  <div id="network">looking up network address...</div>
+  <button id="reset">RESET DEMO</button>
+
+  <div class="dashboard">
+    <div class="panel">
+      <h2>Communication Pipeline</h2>
+      <div><span class="dot" id="dot-controller"></span>CONTROLLER</div>
+      <div><span class="dot" id="dot-commander"></span>COMMANDER</div>
+      <div><span class="dot" id="dot-receiver"></span>RECEIVER</div>
+      <p>Active message: <span id="active-message">none</span></p>
+      <p>Queue depth: <span id="queue-depth">0</span></p>
+      <div id="queue-countdown"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Mode Control</h2>
+      <div>
+        <strong>Mode:</strong>
+        <button data-mode="FORWARD">FORWARD</button>
+        <button data-mode="DELAY">DELAY</button>
+        <button data-mode="MASK">MASK</button>
+        <button data-mode="SWAP">SWAP</button>
+      </div>
+      <div>
+        <strong>Delay preset:</strong>
+        <button data-delay="1500">1500 ms</button>
+        <button data-delay="2000">2000 ms</button>
+        <button data-delay="3000">3000 ms</button>
+      </div>
+      <div>
+        <strong>Mask effect:</strong>
+        <button data-effect="STATIC_SHORT">STATIC_SHORT</button>
+        <button data-effect="STATIC_LONG">STATIC_LONG</button>
+        <button data-effect="NOISE_BURST">NOISE_BURST</button>
+        <button data-effect="DROPOUT_SHORT">DROPOUT_SHORT</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Input / Event Visualization</h2>
+      <div id="swap-io">no swap active</div>
+    </div>
+
+    <div class="panel">
+      <h2>Simulation Telemetry (SIMULATION)</h2>
+      <div id="telemetry"></div>
+    </div>
+
+    <div class="panel full-width">
+      <h2>Event Log</h2>
+      <div id="events"></div>
+    </div>
+  </div>
+
+  <script>
+    const ws = new WebSocket(`ws://${location.host}/ws`);
+    ws.onopen = () => ws.send(JSON.stringify({ type: "register", client: "operator" }));
+
+    document.getElementById("reset").onclick = () => fetch("/api/demo/reset", { method: "POST" });
+
+    fetch("/api/network")
+      .then((r) => r.json())
+      .then(({ host, port }) => {
+        const base = `http://${host}:${port}`;
+        document.getElementById("network").textContent =
+          `Commander: ${base}/commander   Receiver: ${base}/receiver`;
+      })
+      .catch(() => {
+        document.getElementById("network").textContent = "network address unavailable";
+      });
+
+    let lastState = null;
+
+    function renderSelection(state) {
+      document.querySelectorAll("button[data-mode]").forEach((button) => {
+        button.classList.toggle("selected", button.dataset.mode === state.mode);
+      });
+      document.querySelectorAll("button[data-delay]").forEach((button) => {
+        button.classList.toggle("selected", Number(button.dataset.delay) === state.delay_ms);
+      });
+      document.querySelectorAll("button[data-effect]").forEach((button) => {
+        button.classList.toggle("selected", button.dataset.effect === state.effect);
+      });
+    }
+
+    function renderPipeline(state) {
+      document.getElementById("dot-controller").className = "dot online";
+      document.getElementById("dot-commander").className =
+        "dot " + (state.online.includes("commander") ? "online" : "offline");
+      document.getElementById("dot-receiver").className =
+        "dot " + (state.online.includes("receiver") ? "online" : "offline");
+
+      const active = document.getElementById("active-message");
+      active.textContent = state.active_message
+        ? `${state.active_message.input_display} (${state.active_message.message_id})`
+        : "none";
+
+      document.getElementById("queue-depth").textContent = state.queue.length;
+    }
+
+    function renderSwapIO(state) {
+      const el = document.getElementById("swap-io");
+      if (state.active_message && state.active_message.mode === "SWAP") {
+        el.textContent =
+          `INPUT: ${state.active_message.input_display}  →  SWAP  →  OUTPUT: ${state.active_message.output_display}`;
+      } else {
+        el.textContent = "no swap active";
+      }
+    }
+
+    function renderTelemetry(state) {
+      const t = state.telemetry;
+      document.getElementById("telemetry").textContent =
+        `connected: ${t.connected} | status: ${t.status} | position: (${t.position.x}, ${t.position.y}, ${t.position.z})`;
+    }
+
+    function renderEvents(events) {
+      const el = document.getElementById("events");
+      el.innerHTML = "";
+      events.slice().reverse().forEach((ev) => {
+        const line = document.createElement("div");
+        line.textContent = JSON.stringify(ev);
+        el.appendChild(line);
+      });
+    }
+
+    function renderQueueCountdown() {
+      if (!lastState) return;
+      const el = document.getElementById("queue-countdown");
+      el.innerHTML = "";
+      lastState.queue.forEach((entry) => {
+        const remaining = Math.max(0, entry.release_at - Date.now() / 1000);
+        const line = document.createElement("div");
+        line.textContent = `${entry.message_id} release in ${remaining.toFixed(1)}s`;
+        el.appendChild(line);
+      });
+    }
+    setInterval(renderQueueCountdown, 200);
+
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      console.log("operator received:", data);
+      if (data.type === "state") {
+        lastState = data.state;
+        renderSelection(data.state);
+        renderPipeline(data.state);
+        renderSwapIO(data.state);
+        renderTelemetry(data.state);
+        renderEvents(data.state.events);
+        renderQueueCountdown();
+      }
+    };
+
+    document.querySelectorAll("button[data-mode]").forEach((button) => {
+      button.onclick = () => ws.send(JSON.stringify({ type: "set_mode", mode: button.dataset.mode }));
+    });
+
+    document.querySelectorAll("button[data-delay]").forEach((button) => {
+      button.onclick = () =>
+        ws.send(JSON.stringify({ type: "set_mode", mode: "DELAY", delay_ms: Number(button.dataset.delay) }));
+    });
+
+    document.querySelectorAll("button[data-effect]").forEach((button) => {
+      button.onclick = () =>
+        ws.send(JSON.stringify({ type: "set_mode", mode: "MASK", effect: button.dataset.effect }));
+    });
+  </script>
+</body>
+</html>
