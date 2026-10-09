@@ -4,8 +4,15 @@ A software-only, 48-hour Wizard-of-Oz demo of a message manipulation pipeline.
 A commander sends a predefined message, a controller processes it in one of four
 modes, a receiver plays the result, and a simulated Unitree Go2 robot reacts.
 
+The original concept was radio interception and voice cloning using a model like fish
+speech. It also made use of signal jamming, remote control of the actual robot, etc.
+This was very much out of scope for a small demo, and majorly illegal, thus we pulled 
+it back into this.
+
 Everything here is faked. It only uses pre-recorded demo clips. There is no
 radio, no SDR, no interception of real traffic (since that's illegal) and no voice cloning.
+This tightens up the demo to make it much more reasonable whilst still maintaining the 
+original concept.
 
 This is made for Ubuntu-based systems, I'm unsure if MuJoCo works on Arch or Debian.
 
